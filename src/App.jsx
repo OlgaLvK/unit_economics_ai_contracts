@@ -113,7 +113,16 @@ export default function App() {
     <div style={{ fontFamily: "Inter, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#f1f5f9", padding: "24px 16px" }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>📊 Юнит-экономика</h1>
-        <p style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>Подписка · 15 €/мес · Фикс. расходы 3 000 €/мес</p>
+        <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "#94a3b8", whiteSpace: "nowrap" }}>💳 Цена подписки</span>
+            <NumInput value={p.price} onChange={set("price")} min={1} step={1} suffix="€/мес" />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "#94a3b8", whiteSpace: "nowrap" }}>🏷️ Фикс. расходы</span>
+            <NumInput value={p.fixedCosts} onChange={set("fixedCosts")} min={0} step={100} suffix="€/мес" />
+          </div>
+        </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
           {["Калькулятор", "Сценарии", "Точка безубыточности"].map((t, i) => (
