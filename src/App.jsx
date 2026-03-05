@@ -38,37 +38,57 @@ function calcFunnel(p) {
   const totalCac = p.leads * p.cac;
   const profit = revenue - p.fixedCosts - totalCac;
   const breakEven = Math.ceil((p.fixedCosts + totalCac) / p.price);
-  const leadsNeeded = breakEven / ((p.cr1 / 100) * (p.cr2 / 100) * (p.cr3 / 100) * (p.cr4 / 100) * (p.cr5 / 100));
-  return { signups, cm, doc, plan, paid: Math.round(paid * 10) / 10, revenue, profit, breakEven, leadsNeeded: Math.ceil(leadsNeeded) };
+  const overallCR = (p.cr1 / 100) * (p.cr2 / 100) * (p.cr3 / 100) * (p.cr4 / 100) * (p.cr5 / 100);
+  const leadsNeeded = overallCR > 0 ? Math.ceil(breakEven / overallCR) : Infinity;
+  return { signups, cm, doc, plan, paid: Math.round(paid * 10) / 10, revenue, profit, breakEven, leadsNeeded, overallCR };
 }
 
-const SliderRow = ({ label, value, onChange, min = 1, max = 100, step = 1, suffix = "%", hint }) => (
-  <div className="mb-3">
-    <div className="flex justify-between items-center mb-1">
-      <span className="text-sm text-gray-300">{label}</span>
-      <span className="text-sm font-bold text-white">{value}{suffix}</span>
+const inputStyle = {
+  background: "#0f172a", border: "1px solid #334155", borderRadius: 6,
+  color: "#f1f5f9", padding: "6px 10px", fontSize: 13, width: "100%", outline: "none", boxSizing: "border-box"
+};
+
+function NumInput({ value, onChange, min = 0, max, step = 1, suffix }) {
+  const [raw, setRaw] = useState(null);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <input
+        type="number" min={min} max={max} step={step}
+        value={raw !== null ? raw : value}
+        style={inputStyle}
+        onChange={e => {
+          setRaw(e.target.value);
+          const n = parseFloat(e.target.value);
+          if (!isNaN(n)) onChange(n);
+        }}
+        onBlur={() => setRaw(null)}
+      />
+      {suffix && <span style={{ color: "#64748b", fontSize: 13, whiteSpace: "nowrap" }}>{suffix}</span>}
     </div>
-    {hint && <div className="text-xs text-gray-500 mb-1">{hint}</div>}
-    <input type="range" min={min} max={max} step={step} value={value}
-      onChange={e => onChange(Number(e.target.value))}
-      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-      style={{ background: `linear-gradient(to right, #6366f1 0%, #6366f1 ${((value - min) / (max - min)) * 100}%, #374151 ${((value - min) / (max - min)) * 100}%, #374151 100%)` }}
-    />
-  </div>
-);
+  );
+}
+
+function InputRow({ label, hint, value, onChange, min, max, step, suffix }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+        <span style={{ fontSize: 13, color: "#d1d5db" }}>{label}</span>
+      </div>
+      {hint && <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{hint}</div>}
+      <NumInput value={value} onChange={onChange} min={min} max={max} step={step} suffix={suffix} />
+    </div>
+  );
+}
 
 export default function App() {
   const [p, setP] = useState(DEFAULT);
   const [tab, setTab] = useState(0);
-
   const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
 
   const res = useMemo(() => calcFunnel(p), [p]);
 
   const scenarioResults = useMemo(() =>
-    SCENARIOS.map(s => ({ ...s, res: calcFunnel({ ...p, ...s.mods }) })),
-    [p]
-  );
+    SCENARIOS.map(s => ({ ...s, res: calcFunnel({ ...p, ...s.mods }) })), [p]);
 
   const funnelSteps = [
     { label: "Лендинг просмотрен", value: p.leads, cr: null },
@@ -81,14 +101,21 @@ export default function App() {
 
   const profitColor = res.profit >= 0 ? "#10b981" : "#ef4444";
 
+  // Overall CR ~3%: find leads needed
+  const cr3pct = useMemo(() => {
+    // overall CR with cr5=3, rest current
+    const overallWith3 = (p.cr1/100)*(p.cr2/100)*(p.cr3/100)*(p.cr4/100)*(0.03);
+    const leadsFor3 = overallWith3 > 0 ? Math.ceil(res.breakEven / overallWith3) : Infinity;
+    return { overallWith3: (overallWith3 * 100).toFixed(2), leadsFor3 };
+  }, [p, res.breakEven]);
+
   return (
     <div style={{ fontFamily: "Inter, sans-serif", background: "#0f172a", minHeight: "100vh", color: "#f1f5f9", padding: "24px 16px" }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>📊 Юнит-экономика</h1>
         <p style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>Подписка · 15 €/мес · Фикс. расходы 3 000 €/мес</p>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
           {["Калькулятор", "Сценарии", "Точка безубыточности"].map((t, i) => (
             <button key={i} onClick={() => setTab(i)}
               style={{ padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
@@ -98,67 +125,40 @@ export default function App() {
           ))}
         </div>
 
-        {/* TAB 0: Calculator */}
+        {/* TAB 0 */}
         {tab === 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {/* Left: sliders */}
             <div style={{ background: "#1e293b", borderRadius: 12, padding: 20 }}>
               <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, color: "#c7d2fe" }}>⚙️ Параметры воронки</h2>
+              <InputRow label="Лидов на лендинг" value={p.leads} onChange={set("leads")} min={0} step={10} suffix="чел." />
+              <InputRow label="CR1 — Лендинг → Регистрация" hint="Просмотрел лендинг → зарегистрировался" value={p.cr1} onChange={set("cr1")} min={0} max={100} step={0.1} suffix="%" />
+              <InputRow label="CR2 — Регистрация → CM" hint="Зарегистрировался → просмотрел CM" value={p.cr2} onChange={set("cr2")} min={0} max={100} step={0.1} suffix="%" />
+              <InputRow label="CR3 — CM → AI Doc" hint="Просмотрел CM → создал AI документ" value={p.cr3} onChange={set("cr3")} min={0} max={100} step={0.1} suffix="%" />
+              <InputRow label="CR4 — AI Doc → Plan" hint="Создал AI doc → просмотрел план" value={p.cr4} onChange={set("cr4")} min={0} max={100} step={0.1} suffix="%" />
+              <InputRow label="CR5 — Plan → Оплата" hint="Просмотрел план → оплатил" value={p.cr5} onChange={set("cr5")} min={0} max={100} step={0.1} suffix="%" />
 
-              <div style={{ marginBottom: 16 }}>
-                <div className="flex justify-between items-center mb-1">
-                  <span style={{ fontSize: 14, color: "#d1d5db" }}>Лидов на лендинг</span>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>{fmt(p.leads)}</span>
-                </div>
-                <input type="range" min={100} max={10000} step={50} value={p.leads}
-                  onChange={e => set("leads")(Number(e.target.value))}
-                  style={{ width: "100%", accentColor: "#6366f1" }} />
+              <div style={{ marginTop: 8, padding: 10, background: "#0f172a", borderRadius: 8, fontSize: 12, color: "#94a3b8" }}>
+                Сквозная конверсия (лид → оплата): <span style={{ color: "#a5b4fc", fontWeight: 700 }}>{(res.overallCR * 100).toFixed(2)}%</span>
               </div>
-
-              {[
-                { key: "cr1", label: "CR1 — Лендинг → Регистрация", hint: "Просмотрел лендинг → зарегистрировался" },
-                { key: "cr2", label: "CR2 — Регистрация → CM", hint: "Зарегистрировался → просмотрел CM" },
-                { key: "cr3", label: "CR3 — CM → AI Doc", hint: "Просмотрел CM → создал AI документ" },
-                { key: "cr4", label: "CR4 — AI Doc → Plan", hint: "Создал AI doc → просмотрел план" },
-                { key: "cr5", label: "CR5 — Plan → Оплата", hint: "Просмотрел план → оплатил" },
-              ].map(({ key, label, hint }) => (
-                <div key={key} style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, color: "#d1d5db" }}>{label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#a5b4fc" }}>{p[key]}%</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{hint}</div>
-                  <input type="range" min={1} max={100} value={p[key]}
-                    onChange={e => set(key)(Number(e.target.value))}
-                    style={{ width: "100%", accentColor: "#6366f1" }} />
-                </div>
-              ))}
             </div>
 
-            {/* Right: funnel + result */}
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Funnel */}
               <div style={{ background: "#1e293b", borderRadius: 12, padding: 20 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, color: "#c7d2fe" }}>🔽 Воронка</h2>
                 {funnelSteps.map((step, i) => {
-                  const maxVal = p.leads;
-                  const w = Math.max(8, (step.value / maxVal) * 100);
+                  const w = Math.max(8, (step.value / Math.max(p.leads, 1)) * 100);
                   const isLast = i === funnelSteps.length - 1;
                   return (
                     <div key={i} style={{ marginBottom: 8 }}>
                       {step.cr !== null && (
-                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2, paddingLeft: 4 }}>
-                          ↓ {step.crLabel}: {step.cr}%
-                        </div>
+                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2, paddingLeft: 4 }}>↓ {step.crLabel}: {step.cr}%</div>
                       )}
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ flex: 1, background: "#0f172a", borderRadius: 6, height: 28, overflow: "hidden" }}>
-                          <div style={{
-                            width: `${w}%`, height: "100%", borderRadius: 6,
+                          <div style={{ width: `${w}%`, height: "100%", borderRadius: 6,
                             background: isLast ? (res.profit >= 0 ? "#10b981" : "#ef4444") : "#6366f1",
                             display: "flex", alignItems: "center", paddingLeft: 8,
-                            fontSize: 12, fontWeight: 700, color: "#fff", whiteSpace: "nowrap"
-                          }}>
+                            fontSize: 12, fontWeight: 700, color: "#fff", whiteSpace: "nowrap" }}>
                             {fmt(step.value)}
                           </div>
                         </div>
@@ -169,7 +169,6 @@ export default function App() {
                 })}
               </div>
 
-              {/* KPIs */}
               <div style={{ background: "#1e293b", borderRadius: 12, padding: 20 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, color: "#c7d2fe" }}>💰 Результат</h2>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -177,7 +176,7 @@ export default function App() {
                     { label: "Платящих", value: fmt(res.paid), sub: "пользователей" },
                     { label: "Выручка", value: fmt(res.revenue, 0) + " €", sub: "в месяц" },
                     { label: "Расходы", value: fmt(p.fixedCosts) + " €", sub: "фикс. в месяц" },
-                    { label: "Прибыль", value: fmtEur(res.profit), sub: "в месяц", highlight: true, color: profitColor },
+                    { label: "Прибыль", value: fmtEur(res.profit), sub: "в месяц", color: profitColor },
                   ].map((kpi, i) => (
                     <div key={i} style={{ background: "#0f172a", borderRadius: 8, padding: 12 }}>
                       <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{kpi.label}</div>
@@ -195,27 +194,25 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 1: Scenarios */}
+        {/* TAB 1 */}
         {tab === 1 && (
           <div>
-            <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>
-              Базовые параметры берутся из калькулятора. Оптимистичный и консервативный сценарии меняют конверсии и количество лидов.
-            </p>
+            <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>Базовые параметры берутся из калькулятора.</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
               {scenarioResults.map((s, i) => {
                 const r = s.res;
-                const profit = r.profit;
-                const pColor = profit >= 0 ? "#10b981" : "#ef4444";
+                const pColor = r.profit >= 0 ? "#10b981" : "#ef4444";
                 return (
                   <div key={i} style={{ background: "#1e293b", borderRadius: 12, padding: 20, borderTop: `3px solid ${s.color}` }}>
                     <h3 style={{ fontSize: 16, fontWeight: 700, color: s.color, marginBottom: 16 }}>{s.label}</h3>
                     {[
                       { label: "Лидов", value: fmt(i === 0 ? p.leads : s.mods.leads) },
-                      { label: "CR1 (→ регистрация)", value: (i === 0 ? p.cr1 : s.mods.cr1) + "%" },
-                      { label: "CR2 (→ CM)", value: (i === 0 ? p.cr2 : s.mods.cr2) + "%" },
-                      { label: "CR3 (→ AI doc)", value: (i === 0 ? p.cr3 : s.mods.cr3) + "%" },
-                      { label: "CR4 (→ план)", value: (i === 0 ? p.cr4 : s.mods.cr4) + "%" },
-                      { label: "CR5 (→ оплата)", value: (i === 0 ? p.cr5 : s.mods.cr5) + "%" },
+                      { label: "CR1", value: (i === 0 ? p.cr1 : s.mods.cr1) + "%" },
+                      { label: "CR2", value: (i === 0 ? p.cr2 : s.mods.cr2) + "%" },
+                      { label: "CR3", value: (i === 0 ? p.cr3 : s.mods.cr3) + "%" },
+                      { label: "CR4", value: (i === 0 ? p.cr4 : s.mods.cr4) + "%" },
+                      { label: "CR5", value: (i === 0 ? p.cr5 : s.mods.cr5) + "%" },
+                      { label: "Сквозная CR", value: (r.overallCR * 100).toFixed(2) + "%" },
                     ].map((row, j) => (
                       <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #0f172a", fontSize: 13 }}>
                         <span style={{ color: "#94a3b8" }}>{row.label}</span>
@@ -229,12 +226,12 @@ export default function App() {
                       </div>
                       <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
                         <div style={{ fontSize: 11, color: "#64748b" }}>Прибыль</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: pColor }}>{fmtEur(profit)}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: pColor }}>{fmtEur(r.profit)}</div>
                       </div>
                     </div>
                     <div style={{ marginTop: 8, background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
                       <div style={{ fontSize: 11, color: "#64748b" }}>Выручка</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>{fmt(r.revenue, 0)} €</div>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(r.revenue, 0)} €</div>
                     </div>
                   </div>
                 );
@@ -243,29 +240,35 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: Break-even */}
+        {/* TAB 2 */}
         {tab === 2 && (
           <div>
-            <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>
-              При каком количестве лидов ты выходишь в ноль и в плюс — при текущих конверсиях?
-            </p>
-            <div style={{ background: "#1e293b", borderRadius: 12, padding: 20, marginBottom: 20 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, color: "#c7d2fe" }}>🎯 Точка безубыточности</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 20 }}>
+            <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>При каком количестве лидов выходишь в ноль и в плюс — при текущих конверсиях?</p>
+
+            {/* CR5=3% block */}
+            <div style={{ background: "#1e293b", borderRadius: 12, padding: 20, marginBottom: 20, borderLeft: "3px solid #f59e0b" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, color: "#fbbf24" }}>🎯 Сценарий: CR5 = 3% (итоговая конверсия в покупку)</h2>
+              <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 14 }}>
+                При CR5 = 3% сквозная конверсия (лид → оплата) составит <span style={{ color: "#fbbf24", fontWeight: 700 }}>{cr3pct.overallWith3}%</span>.
+                Чтобы выйти в ноль, нужно минимум <span style={{ color: "#fbbf24", fontWeight: 700 }}>{res.breakEven} платящих</span>.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                 {[
-                  { label: "Нужно платящих", value: fmt(res.breakEven), color: "#fbbf24" },
-                  { label: "Нужно лидов", value: fmt(res.leadsNeeded), color: "#fbbf24" },
+                  { label: "CR5", value: "3%", color: "#f59e0b" },
+                  { label: "Нужно лидов для безубытка", value: isFinite(cr3pct.leadsFor3) ? fmt(cr3pct.leadsFor3) : "∞", color: "#fbbf24" },
                   { label: "Сейчас лидов", value: fmt(p.leads), color: "#6366f1" },
                 ].map((kpi, i) => (
                   <div key={i} style={{ background: "#0f172a", borderRadius: 8, padding: 14, textAlign: "center" }}>
                     <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>{kpi.label}</div>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: kpi.color }}>{kpi.value}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: kpi.color }}>{kpi.value}</div>
                   </div>
                 ))}
               </div>
+            </div>
 
-              {/* Table: lead levels */}
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>Таблица: лиды → прибыль</h3>
+            <div style={{ background: "#1e293b", borderRadius: 12, padding: 20 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: "#c7d2fe" }}>📋 Таблица: лиды → прибыль (при текущих CR)</h2>
+              <p style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>Сквозная CR сейчас: <span style={{ color: "#a5b4fc" }}>{(res.overallCR * 100).toFixed(2)}%</span></p>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
@@ -276,7 +279,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[200, 500, 1000, 2000, 3000, 5000, 8000, 10000].map(leads => {
+                    {[200, 500, 1000, 2000, 3000, 5000, 8000, 10000, 20000, 50000].map(leads => {
                       const r = calcFunnel({ ...p, leads });
                       const isNow = leads === p.leads;
                       const inPlus = r.profit >= 0;
